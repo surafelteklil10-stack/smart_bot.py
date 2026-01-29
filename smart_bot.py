@@ -407,152 +407,104 @@ def strategy_engine():
 
         time.sleep(10)
 
-  # ======================================================
-# SMART BOT – PART 5 : TRADE ENGINE & RISK MANAGER
+ # ======================================================
+# PART 5 – TRADE ENGINE + RISK MANAGEMENT (SAFE VERSION)
 # ======================================================
 
-# ===============================
-# SYMBOL UNIVERSE (100+)
-# ===============================
-SYMBOLS = [
-    "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","ADAUSDT","DOGEUSDT",
-    "AVAXUSDT","DOTUSDT","MATICUSDT","LINKUSDT","ATOMUSDT","LTCUSDT","ETCUSDT",
-    "TRXUSDT","OPUSDT","ARBUSDT","APTUSDT","NEARUSDT","FTMUSDT","INJUSDT",
-    "SUIUSDT","RNDRUSDT","SEIUSDT","TIAUSDT","ORDIUSDT","1000PEPEUSDT",
-    "1000SHIBUSDT","BLURUSDT","WLDUSDT","FILUSDT","ICPUSDT","EOSUSDT",
-    "UNIUSDT","AAVEUSDT","GALAUSDT","SANDUSDT","MANAUSDT","CHZUSDT",
-    "NEOUSDT","ROSEUSDT","KAVAUSDT","IMXUSDT","RUNEUSDT","FLOWUSDT",
-    "CRVUSDT","DYDXUSDT","LDOUSDT","COMPUSDT","ZECUSDT","ENSUSDT",
-    "BATUSDT","SNXUSDT","YFIUSDT","1INCHUSDT","QTUMUSDT","ANKRUSDT",
-    "CELOUSDT","STMXUSDT","COTIUSDT","SKLUSDT","LRCUSDT","MTLUSDT",
-    "ALGOUSDT","BANDUSDT","XLMUSDT","XTZUSDT","ZENUSDT","OCEANUSDT",
-    "IOTAUSDT","RSRUSDT","ICXUSDT","MINAUSDT","KSMUSDT","STORJUSDT",
-    "MASKUSDT","API3USDT","WAVESUSDT","AUDIOUSDT","HOOKUSDT","CYBERUSDT"
-]
+def daily_risk_check():
+    """
+    Checks daily PnL and activates kill switch
+    """
+    global KILL_SWITCH
 
-# ===============================
-# OPEN TRADE CHECK
-# ===============================
-def has_open_trade(symbol):
-    return symbol in OPEN_TRADES
-
-# ===============================
-# POSITION SIZE
-# ===============================
-def calc_qty(symbol):
-    balance = get_balance()
-    usdt = balance * RISK_PER_TRADE
-
-    price = float(session.get_tickers(
-        category="linear", symbol=symbol
-    )["result"]["list"][0]["lastPrice"])
-
-    qty = round((usdt * LEVERAGE) / price, 3)
-    return qty, price
-
-# ===============================
-# OPEN TRADE
-# ===============================
-def open_trade(symbol, side):
-    global TRADES_TODAY
-
-    if KILL_SWITCH:
+    # safeguard 1: START_DAY_BALANCE not ready
+    if START_DAY_BALANCE is None or START_DAY_BALANCE <= 0:
         return
+
+    bal = get_balance()
+
+    # safeguard 2: balance fetch failed
+    if bal <= 0:
+        return
+
+    pnl = (bal - START_DAY_BALANCE) / START_DAY_BALANCE
+
+    if pnl <= -MAX_DAILY_LOSS:
+        KILL_SWITCH = True
+        tg("🛑 DAILY LOSS LIMIT HIT – BOT STOPPED")
+
+    elif pnl >= MAX_DAILY_PROFIT:
+        KILL_SWITCH = True
+        tg("🎯 DAILY PROFIT TARGET HIT – BOT STOPPED")
+
+
+def trade_engine(symbol, side):
+    """
+    Executes a trade with risk control
+    """
+    global TRADES_TODAY, OPEN_TRADES
+
+    if KILL_SWITCH or not BOT_ACTIVE:
+        return
+
     if TRADES_TODAY >= MAX_TRADES:
         return
 
-    qty, price = calc_qty(symbol)
+    balance = get_balance()
+    if balance <= 0:
+        return
 
-    session.set_leverage(
-        category="linear",
-        symbol=symbol,
-        buyLeverage=LEVERAGE,
-        sellLeverage=LEVERAGE
-    )
+    # position size based on risk
+    risk_amount = balance * RISK_PER_TRADE
 
-    order = session.place_order(
-        category="linear",
-        symbol=symbol,
-        side=side,
-        orderType="Market",
-        qty=qty,
-        timeInForce="IOC"
-    )
-
-    OPEN_TRADES[symbol] = {
-        "side": side,
-        "entry": price,
-        "qty": qty,
-        "time": datetime.now()
-    }
-
-    TRADES_TODAY += 1
-    tg(f"📈 OPEN {side} {symbol}\nEntry: {price}\nQty: {qty}")
-
-# ===============================
-# AUTO STOPLOSS & TRAILING
-# ===============================
-def manage_trades():
-    while True:
-        try:
-            for sym in list(OPEN_TRADES.keys()):
-                price = float(session.get_tickers(
-                    category="linear", symbol=sym
-                )["result"]["list"][0]["lastPrice"])
-
-                trade = OPEN_TRADES[sym]
-                entry = trade["entry"]
-                side = trade["side"]
-
-                if side == "Buy":
-                    pnl = (price - entry) / entry
-                else:
-                    pnl = (entry - price) / entry
-
-                # STOP LOSS -5%
-                if pnl <= -0.05:
-                    close_trade(sym, "STOP LOSS")
-
-                # TAKE PROFIT +8%
-                if pnl >= 0.08:
-                    close_trade(sym, "TAKE PROFIT")
-
-        except:
-            pass
-
-        time.sleep(5)
-
-# ===============================
-# CLOSE TRADE
-# ===============================
-def close_trade(symbol, reason="CLOSE"):
     try:
-        side = "Sell" if OPEN_TRADES[symbol]["side"] == "Buy" else "Buy"
-        qty = OPEN_TRADES[symbol]["qty"]
+        price = float(
+            session.get_tickers(
+                category="linear",
+                symbol=symbol
+            )["result"]["list"][0]["lastPrice"]
+        )
+    except:
+        return
 
+    if price <= 0:
+        return
+
+    qty = round(risk_amount / price, 3)
+    if qty <= 0:
+        return
+
+    try:
+        # set leverage
+        session.set_leverage(
+            category="linear",
+            symbol=symbol,
+            buyLeverage=LEVERAGE,
+            sellLeverage=LEVERAGE
+        )
+
+        # place market order
         session.place_order(
             category="linear",
             symbol=symbol,
             side=side,
             orderType="Market",
             qty=qty,
-            timeInForce="IOC",
-            reduceOnly=True
+            timeInForce="IOC"
         )
 
-        tg(f"❌ CLOSE {symbol}\nReason: {reason}")
-        del OPEN_TRADES[symbol]
+        TRADES_TODAY += 1
+        OPEN_TRADES[symbol] = {
+            "side": side,
+            "qty": qty,
+            "price": price,
+            "time": datetime.utcnow()
+        }
 
-    except:
-        pass
+        tg(f"📈 TRADE OPENED\n{symbol} | {side}\nQty: {qty}")
 
-# ===============================
-# DAILY WATCHDOG
-# ===============================
-def daily_watchdog():
-    while True:
-        daily_risk_check()
-        time.sleep(30)
+    except Exception as e:
+        tg(f"⚠️ Trade failed: {e}")
 
   # ======================================================
 # SMART BOT – PART 6 : TELEGRAM COMMAND CENTER
