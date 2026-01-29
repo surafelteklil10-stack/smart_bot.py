@@ -1023,3 +1023,12 @@ def master_trader():
 # ===============================
 threading.Thread(target=telegram_listener, daemon=True).start()
 master_trader()
+
+
+import threading
+import mini_app
+
+threading.Thread(target=mini_app.app.run, kwargs={
+    "host": "0.0.0.0",
+    "port": 10000
+}, daemon=True).start()
