@@ -1,5 +1,5 @@
 # ======================================================
-# SMART BOT – PART 1 : CORE SYSTEM
+# Smart BOT – PART 1 : CORE SYSTEM
 # Bybit DEMO + REAL | Cloud Ready (Render)
 # File: smart_bot.py
 # ======================================================
@@ -990,7 +990,7 @@ def send_webapp_button():
 
     data = {
         "chat_id": TG_ADMIN,
-        "text": "📱 SMART BOT MINI APP",
+        "text": "📱 Smart BOT MINI APP",
         "reply_markup": {
             "keyboard": [[
                 {"text": "🚀 Open Mini App", "web_app": {"url": url}}
